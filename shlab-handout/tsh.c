@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <string.h>
 
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
@@ -165,6 +166,17 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
+
+    char **argv=malloc(sizeof(char *)*MAXLINE); /*initialized and allocate memory for it*/
+    
+    int isbg=parseline(cmdline,argv); /*is 1 if running in bg*/
+
+    if(builtin_cmd(argv)!=1){ 
+        /*deal with not built-in command here*/
+        printf("this is NOT  builtin command\n");
+    }
+
+    
     return;
 }
 
@@ -190,7 +202,7 @@ int parseline(const char *cmdline, char **argv)
 
     /* Build the argv list */
     argc = 0;
-    if (*buf == '\'') {
+    if (*buf == '\'') { /*if the string is single quoted. */
 	buf++;
 	delim = strchr(buf, '\'');
     }
@@ -200,6 +212,9 @@ int parseline(const char *cmdline, char **argv)
 
     while (delim) {
 	argv[argc++] = buf;
+
+    printf("is parsing now:%s\n",argv[argc-1]);
+
 	*delim = '\0';
 	buf = delim + 1;
 	while (*buf && (*buf == ' ')) /* ignore spaces */
@@ -231,7 +246,41 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
-    return 0;     /* not a builtin command */
+    char *firstArg=argv[0];
+    printf("fist arg:%s\n",firstArg);
+
+    /*the command typed in is builtin command*/
+    if(strcmp(firstArg,"quit")==0){
+        /*quit the shell*/
+        exit(0);
+        return 1;  
+    }
+    else if(strcmp(firstArg,"jobs")==0){
+        /*list the running and stopped background jobs*/
+        listjobs(jobs);
+        return 1;
+
+    }
+    else if(strcmp(firstArg,"bg")==0){
+        /*change a stopped bg job to running bg job*/
+        char *secondArg=argv[1];
+        printf("seconfarg:%s\n",secondArg);
+
+
+        
+        return 1;
+
+    }
+    else if(strcmp(firstArg,"fg")==0){
+        /*change a stopped or running bg job to running in fg*/
+        return 1;
+
+    }
+    /* not a builtin command */
+    else{   
+        return 0;
+    }
+ 
 }
 
 /* 
@@ -418,7 +467,6 @@ int pid2jid(pid_t pid)
 void listjobs(struct job_t *jobs) 
 {
     int i;
-    
     for (i = 0; i < MAXJOBS; i++) {
 	if (jobs[i].pid != 0) {
 	    printf("[%d] (%d) ", jobs[i].jid, jobs[i].pid);
@@ -478,6 +526,10 @@ void app_error(char *msg)
     fprintf(stdout, "%s\n", msg);
     exit(1);
 }
+
+
+
+
 
 /*
  * Signal - wrapper for the sigaction function
