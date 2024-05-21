@@ -173,35 +173,57 @@ void eval(char *cmdline)
 
     if(builtin_cmd(argv)!=1){ 
         /*deal with not built-in command here*/
-        printf("this is NOT  builtin command\n");
+        
         pid_t pid=fork();
+
+       
+
         switch(pid){
             case -1:
                 printf("fork failed\n");
             case 0:/*child process*/
        
                 if(isbg){
-                    printf("should run in bg\n");
-                    //change pid to bg
-                    setpgid(getpid(),0); 
-                 
+                    
+                    //change pid to another group, thus working in bg
+                    int err=setpgid(getpid(),0);
+                    if(err!=0){printf("error set new group:%s\n",strerror(errno));} 
+
+                    //manipulate the file descriptor
+                    int erro=close(0);//close the stdin, so that not read from terminal anymore
+                    if(erro!=0){printf("close stdin failed\n");}
+
+                    //can live without parent process since here
+                    kill(getppid(),SIGINT); 
+*/
+                    //add to joblist
+                    addjob(jobs,getpid(),BG,cmdline);
+                   
+                }else{
+                    addjob(jobs,getpid(),FG,cmdline);
+                    
                 }
 
-                printf("child is executing\n");
+                //execute
+                int err=execve(argv[0],argv,NULL);
+                if(err!=0){printf("error execution:%s\n",strerror(errno));}
                 
-                execve(argv[0],argv,NULL);
 
 
             default:/*parent process*/
-                if(!isbg){
+                
                     /*should wait until the child finish*/
-                    int *wstatus;
-                    waitpid(pid,wstatus,0);
-                    printf("child is finished\n");
-                }
+                      
+                    if(!isbg){
+                        waitfg(pid); 
+                        addjob(jobs,pid,ST,cmdline);
+                    }   
+                   
+                
+                    
+                
         }
-        
-        return;  
+         
 
     }
 
@@ -276,8 +298,7 @@ int parseline(const char *cmdline, char **argv)
 int builtin_cmd(char **argv) 
 {
     char *firstArg=argv[0];
-    printf("fist arg:%s\n",firstArg);
-
+   
     /*the command typed in is builtin command*/
     if(strcmp(firstArg,"quit")==0){
         /*quit the shell*/
@@ -337,6 +358,8 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    int *wstatus;
+    waitpid(pid,wstatus,0);
     return;
 }
 
@@ -353,6 +376,9 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    //reap all zombies
+    
+   // listjobs(jobs);
     return;
 }
 
@@ -363,7 +389,12 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-    //send SIGINT to all foreground process
+    //send SIGINT to foreground job
+    int fgjobpid=fgpid(jobs);
+    printf("see the fg job:%d",fgjobpid);
+    
+    //kill(fgjobpid,SIGINT);
+    
     return;
 }
 
@@ -374,6 +405,10 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    //send SIGTSTP to foreground job
+    int fgjobpid=fgpid(jobs);
+    printf("suspend,see the fgjob:%d",fgjobpid);
+    //kill(fgjobpid,SIGTSTP);
     return;
 }
 
@@ -415,6 +450,7 @@ int maxjid(struct job_t *jobs)
 /* addjob - Add a job to the job list */
 int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline) 
 {
+    
     int i;
     
     if (pid < 1)
@@ -459,7 +495,7 @@ int deletejob(struct job_t *jobs, pid_t pid)
 /* fgpid - Return PID of current foreground job, 0 if no such job */
 pid_t fgpid(struct job_t *jobs) {
     int i;
-
+   
     for (i = 0; i < MAXJOBS; i++)
 	if (jobs[i].state == FG)
 	    return jobs[i].pid;
@@ -528,6 +564,7 @@ void listjobs(struct job_t *jobs)
 	    }
 	    printf("%s", jobs[i].cmdline);
 	}
+   // else{printf("job[i].pid=0");}
     }
 }
 /******************************
