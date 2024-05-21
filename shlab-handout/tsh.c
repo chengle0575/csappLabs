@@ -174,6 +174,35 @@ void eval(char *cmdline)
     if(builtin_cmd(argv)!=1){ 
         /*deal with not built-in command here*/
         printf("this is NOT  builtin command\n");
+        pid_t pid=fork();
+        switch(pid){
+            case -1:
+                printf("fork failed\n");
+            case 0:/*child process*/
+       
+                if(isbg){
+                    printf("should run in bg\n");
+                    //change pid to bg
+                    setpgid(getpid(),0); 
+                 
+                }
+
+                printf("child is executing\n");
+                
+                execve(argv[0],argv,NULL);
+
+
+            default:/*parent process*/
+                if(!isbg){
+                    /*should wait until the child finish*/
+                    int *wstatus;
+                    waitpid(pid,wstatus,0);
+                    printf("child is finished\n");
+                }
+        }
+        
+        return;  
+
     }
 
     
@@ -213,7 +242,7 @@ int parseline(const char *cmdline, char **argv)
     while (delim) {
 	argv[argc++] = buf;
 
-    printf("is parsing now:%s\n",argv[argc-1]);
+    //printf("is parsing now:%s\n",argv[argc-1]);
 
 	*delim = '\0';
 	buf = delim + 1;
@@ -261,21 +290,13 @@ int builtin_cmd(char **argv)
         return 1;
 
     }
-    else if(strcmp(firstArg,"bg")==0){
-        /*change a stopped bg job to running bg job*/
-        char *secondArg=argv[1];
-        printf("seconfarg:%s\n",secondArg);
-
-
-        
+    else if(strcmp(firstArg,"bg")==0 || strcmp(firstArg,"fg")==0){
+        /*let do_bgfg handle excution*/
+        do_bgfg(argv);
         return 1;
 
     }
-    else if(strcmp(firstArg,"fg")==0){
-        /*change a stopped or running bg job to running in fg*/
-        return 1;
-
-    }
+ 
     /* not a builtin command */
     else{   
         return 0;
@@ -288,6 +309,26 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
+    char *firstarg=argv[0];
+    char *secondarg=argv[1]; //the pid to modify
+
+//    if(strcmp(firstarg,"bg")==0){
+        /*change a stopped bg job to running bg job*/
+//       printf("bg command\n");
+//        kill(secondarg,SIGCONT);
+        //then run it in bg
+
+
+//    }else{
+        /*change a stopped or running bg job to running in fg*/
+//        printf("fg command\n");
+//        kill(secondarg,SIGCONT);
+        //then run it in fg
+//    }
+     
+
+    
+    
     return;
 }
 
@@ -322,6 +363,7 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    //send SIGINT to all foreground process
     return;
 }
 
