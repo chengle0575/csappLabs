@@ -204,6 +204,7 @@ void eval(char *cmdline)
                     }else{
                         //add to joblist
                         addjob(jobs,pid,BG,cmdline);
+                        printf("[%d] (%d) %s",pid2jid(pid),pid,cmdline);
                     }          
 
         }
@@ -320,49 +321,45 @@ void do_bgfg(char **argv)
 
     if(strcmp(firstarg,"bg")==0){
         /*change a stopped bg job to running bg job*/
-       printf("bg command\n");
-
-       struct job_t *job=getjobjid(jobs,jid);
+        struct job_t *job=getjobjid(jobs,jid);
        
-        int pid=job->pid;
+        int pid=job->pid; //value assignment
+        
+        char *cmd=malloc(strlen(job->cmdline)+1);
+        if(cmd==NULL){printf("malloc failed\n");}
+        strcpy(cmd,job->cmdline);
 
         deletejob(jobs,pid);
         kill(pid,SIGCONT);
-        addjob(jobs,pid,BG,job->cmdline);
-        
-       
-        //then run it in bg
-        //should block the process until finish
-        
-       
-       
+        addjob(jobs,pid,BG,cmd);
 
     }else{
         /*change a stopped or running bg job to running in fg*/
-        printf("fg command\n");
-        
         struct job_t *job=getjobjid(jobs,jid);
         int pid=job->pid;
+
+        char *cmd=malloc(strlen(job->cmdline)+1);
+        if(cmd==NULL){printf("malloc failed\n");}
+        strcpy(cmd,job->cmdline);
+
         deletejob(jobs,pid);
-        addjob(jobs,pid,FG,job->cmdline);
+        addjob(jobs,pid,FG,cmd);
 
         pid_t prefg=fgpid(jobs);
         if(prefg!=0){
             struct job_t *prefgjob=getjobpid(jobs,prefg);
+
+            char *precmd=malloc(strlen(prefgjob->cmdline)+1);
+            if(precmd==NULL){printf("malloc failed\n");}
+            strcpy(precmd,prefgjob->cmdline);
+
             //update jobs struct
             deletejob(jobs,prefg);
-            addjob(jobs,prefg,BG,prefgjob->cmdline);
-        }
-        
-        
+            addjob(jobs,prefg,BG,precmd);
+        }    
 
         //send continue signal
         kill(pid,SIGCONT);
-
-        
-        
-        
-        //fork a child process to run bg process in background?
 
         //should block until current fg process finish
         waitfg(pid);       
@@ -475,15 +472,20 @@ void sigtstp_handler(int sig)
 {
     //send SIGTSTP to foreground job
     int fgjobpid=fgpid(jobs);
+    if(fgjobpid==0){printf("no fg process yet\n");return;}
+   
     printf("Job [%d] (%d) stopped by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
     kill(fgjobpid,SIGTSTP);
 
     //update joblist
     struct job_t *job=getjobpid(jobs,fgjobpid);
-    deletejob(jobs,fgjobpid);
-    addjob(jobs,fgjobpid,ST,job->cmdline);
+    char *cmd=malloc(strlen(job->cmdline)+1);
+    if(cmd==NULL){printf("malloc failed\n");}
+    strcpy(cmd,job->cmdline);
 
-    //listjobs(jobs);
+    deletejob(jobs,fgjobpid);
+    addjob(jobs,fgjobpid,ST,cmd);
+
 
     return;
 }
