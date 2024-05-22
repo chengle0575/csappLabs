@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <string.h>
+#include <stdint.h>
 
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
@@ -176,52 +177,39 @@ void eval(char *cmdline)
         
         pid_t pid=fork();
 
-       
-
         switch(pid){
             case -1:
                 printf("fork failed\n");
             case 0:/*child process*/
        
-                if(isbg){
-                    
+                if(isbg){ 
                     //change pid to another group, thus working in bg
                     int err=setpgid(getpid(),0);
                     if(err!=0){printf("error set new group:%s\n",strerror(errno));} 
 
                     //manipulate the file descriptor
                     int erro=close(0);//close the stdin, so that not read from terminal anymore
-                    if(erro!=0){printf("close stdin failed\n");}
-
-                    //can live without parent process since here
-                    kill(getppid(),SIGINT); 
-*/
-                    //add to joblist
-                    addjob(jobs,getpid(),BG,cmdline);
-                   
-                }else{
-                    addjob(jobs,getpid(),FG,cmdline);
-                    
+                    if(erro!=0){printf("close stdin failed\n");}              
                 }
 
                 //execute
                 int err=execve(argv[0],argv,NULL);
                 if(err!=0){printf("error execution:%s\n",strerror(errno));}
                 
+                break;
 
-
-            default:/*parent process*/
-                
-                    /*should wait until the child finish*/
-                      
+            default:/*parent process*/  
+                    /*addjob has to be performed in parent process, since child process and parent process
+                      own memory seperately. Changes to jobs in the child process will lose after child process terminates.*/           
                     if(!isbg){
+                        /*should wait until the child finish*/
+                        addjob(jobs,pid,FG,cmdline);
                         waitfg(pid); 
-                        addjob(jobs,pid,ST,cmdline);
-                    }   
-                   
-                
-                    
-                
+                    }else{
+                        //add to joblist
+                        addjob(jobs,getpid(),BG,cmdline);
+                    }          
+
         }
          
 
@@ -358,9 +346,25 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    int *wstatus;
-    waitpid(pid,wstatus,0);
+    while(1){
+        pid_t fgp=fgpid(jobs);
+        if(pid!=fgp){
+            break;
+        }
+    }
     return;
+    /*
+    //allocate memory for wstatus
+    int *wstatus=malloc(sizeof(int));
+
+
+    pid_t childpid=waitpid(pid,wstatus,0);
+    if(childpid==-1){printf("wait failed,check eeror:%s",errno);}
+
+    free(wstatus);
+    deletejob(jobs,pid);
+    return;
+    */
 }
 
 /*****************
@@ -377,8 +381,24 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
     //reap all zombies
+    printf("a child stopped or terminates.\n");
+
+    int *wstatus=malloc(sizeof(int));
+    pid_t childpid=waitpid(-1,wstatus,WNOHANG);// BY default option, only wait for termination
+    if(childpid==-1){
+        printf("wait failed\n");
+        printf("check eror:%s",errno);
+    }else if (childpid!=0)
+    {
+        deletejob(jobs,childpid);
+    }else{ 
+        //childpid=0
+         //no waitable child process in termination state
+         printf("no waitable child\n");
+    }
     
-   // listjobs(jobs);
+    free(wstatus);
+    listjobs(jobs);
     return;
 }
 
@@ -393,7 +413,7 @@ void sigint_handler(int sig)
     int fgjobpid=fgpid(jobs);
     printf("see the fg job:%d",fgjobpid);
     
-    //kill(fgjobpid,SIGINT);
+    kill(fgjobpid,SIGINT);
     
     return;
 }
@@ -408,7 +428,15 @@ void sigtstp_handler(int sig)
     //send SIGTSTP to foreground job
     int fgjobpid=fgpid(jobs);
     printf("suspend,see the fgjob:%d",fgjobpid);
-    //kill(fgjobpid,SIGTSTP);
+    kill(fgjobpid,SIGTSTP);
+
+    //update joblist
+    struct job_t *job=getjobpid(jobs,fgjobpid);
+    deletejob(jobs,fgjobpid);
+    addjob(jobs,fgjobpid,ST,job->cmdline);
+
+    listjobs(jobs);
+
     return;
 }
 
@@ -564,7 +592,6 @@ void listjobs(struct job_t *jobs)
 	    }
 	    printf("%s", jobs[i].cmdline);
 	}
-   // else{printf("job[i].pid=0");}
     }
 }
 /******************************
