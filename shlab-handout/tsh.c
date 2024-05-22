@@ -174,7 +174,6 @@ void eval(char *cmdline)
 
     if(builtin_cmd(argv)!=1){ 
         /*deal with not built-in command here*/
-        
         pid_t pid=fork();
 
         switch(pid){
@@ -186,7 +185,7 @@ void eval(char *cmdline)
                     //change pid to another group, thus working in bg
                     int err=setpgid(getpid(),0);
                     if(err!=0){printf("error set new group:%s\n",strerror(errno));} 
-
+                
                     //manipulate the file descriptor
                     int erro=close(0);//close the stdin, so that not read from terminal anymore
                     if(erro!=0){printf("close stdin failed\n");}              
@@ -346,7 +345,6 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    
     while(1){
         pid_t fgp=fgpid(jobs);
         if(pid!=fgp){
@@ -354,8 +352,6 @@ void waitfg(pid_t pid)
         }
     }
     return;
-    
-    
 }
 
 /*****************
@@ -371,24 +367,50 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-    //reap [all] zombies
+    //reap [all] zombies: only reap zombies, and all zombies.
+    /*note that signal not queued. Once signal type k is delivered, discard the same type k
+      implies a problem: when a child exit and send signal before the previous zombie chlid is solved,
+      the signal is discarded.
+      .*/
     
-    printf("a child stopped or terminates.\n");
-
-
+    //sleep(10);
     int *wstatus=malloc(sizeof(int));
     if(wstatus==NULL){printf("malloc failed.\n");}
 
+    int maxjob=maxjid(jobs);
+    printf("maxjob:%d\n",maxjob);
+    //reap the process if it is terminated child
+    while(maxjob>=1){
+        struct job_t *jobi=getjobjid(jobs,maxjob);
+        
+        while(jobi==NULL){ //maybe previous job not finished delete when counting maxjob, but finished before here.
+            maxjob--;
+            if(maxjob<1){
+                return;
+            }
+            jobi=getjobjid(jobs,maxjob);
+        }
+        maxjob--;
+        pid_t pidc=jobi->pid;
+        printf("checking:%d\n",pidc);
+        int err=waitpid(pidc,wstatus,WNOHANG);// BY default option, only wait for termination
+        if(err==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
+        else if (err!=0)
+        {   printf("child pid is:%d\n",err);
+            deletejob(jobs,err);
+        }else{ printf("child not in terminate state\n");} //childpid=0 no waitable child process in termination state
+        
+        
+    }
+
+    /*
     pid_t childpid=waitpid(-1,wstatus,WNOHANG);// BY default option, only wait for termination
     if(childpid==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
     else if (childpid!=0)
-    {
-        printf("child pid is:%d\n",childpid);
+    {   printf("child pid is:%d\n",childpid);
         deletejob(jobs,childpid);
-    }else{ //childpid=0 no waitable child process in termination state
-         printf("no waitable child\n");
-    }
-    
+    }else{ printf("no waitable child\n");} //childpid=0 no waitable child process in termination state
+    */
     free(wstatus);
    
     return;
