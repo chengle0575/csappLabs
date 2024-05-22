@@ -185,10 +185,7 @@ void eval(char *cmdline)
                     //change pid to another group, thus working in bg
                     int err=setpgid(getpid(),0);
                     if(err!=0){printf("error set new group:%s\n",strerror(errno));} 
-                
-                    //manipulate the file descriptor
-                    int erro=close(0);//close the stdin, so that not read from terminal anymore
-                    if(erro!=0){printf("close stdin failed\n");}              
+                        
                 }
 
                 //execute
@@ -318,21 +315,58 @@ int builtin_cmd(char **argv)
 void do_bgfg(char **argv) 
 {
     char *firstarg=argv[0];
-    char *secondarg=argv[1]; //the pid to modify
+    char *secondarg=argv[1]; //the jid to modify
+    int jid=atoi(secondarg+1);
 
-//    if(strcmp(firstarg,"bg")==0){
+    if(strcmp(firstarg,"bg")==0){
         /*change a stopped bg job to running bg job*/
-//       printf("bg command\n");
-//        kill(secondarg,SIGCONT);
+       printf("bg command\n");
+
+       struct job_t *job=getjobjid(jobs,jid);
+       
+        int pid=job->pid;
+
+        deletejob(jobs,pid);
+        kill(pid,SIGCONT);
+        addjob(jobs,pid,BG,job->cmdline);
+        
+       
         //then run it in bg
+        //should block the process until finish
+        
+       
+       
 
-
-//    }else{
+    }else{
         /*change a stopped or running bg job to running in fg*/
-//        printf("fg command\n");
-//        kill(secondarg,SIGCONT);
-        //then run it in fg
-//    }
+        printf("fg command\n");
+        
+        struct job_t *job=getjobjid(jobs,jid);
+        int pid=job->pid;
+        deletejob(jobs,pid);
+        addjob(jobs,pid,FG,job->cmdline);
+
+        pid_t prefg=fgpid(jobs);
+        if(prefg!=0){
+            struct job_t *prefgjob=getjobpid(jobs,prefg);
+            //update jobs struct
+            deletejob(jobs,prefg);
+            addjob(jobs,prefg,BG,prefgjob->cmdline);
+        }
+        
+        
+
+        //send continue signal
+        kill(pid,SIGCONT);
+
+        
+        
+        
+        //fork a child process to run bg process in background?
+
+        //should block until current fg process finish
+        waitfg(pid);       
+    }
      
 
     
@@ -373,12 +407,12 @@ void sigchld_handler(int sig)
       the signal is discarded.
       .*/
     
-    //sleep(10);
     int *wstatus=malloc(sizeof(int));
     if(wstatus==NULL){printf("malloc failed.\n");}
 
     int maxjob=maxjid(jobs);
-    printf("maxjob:%d\n",maxjob);
+    //printf("maxjob:%d\n",maxjob);
+    
     //reap the process if it is terminated child
     while(maxjob>=1){
         struct job_t *jobi=getjobjid(jobs,maxjob);
@@ -392,14 +426,14 @@ void sigchld_handler(int sig)
         }
         maxjob--;
         pid_t pidc=jobi->pid;
-        printf("checking:%d\n",pidc);
+        //printf("checking:%d\n",pidc);
         int err=waitpid(pidc,wstatus,WNOHANG);// BY default option, only wait for termination
         if(err==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
         else if (err!=0)
-        {   printf("child pid is:%d\n",err);
+        {   //printf("child pid is:%d\n",err);
             deletejob(jobs,err);
-        }else{ printf("child not in terminate state\n");} //childpid=0 no waitable child process in termination state
-        
+        }else{ //printf("child not in terminate state\n");} //childpid=0 no waitable child process in termination state
+        }
         
     }
 
@@ -425,7 +459,7 @@ void sigint_handler(int sig)
 {
     //send SIGINT to foreground job
     int fgjobpid=fgpid(jobs);
-    printf("see the fg job:%d",fgjobpid);
+    printf("Job [%d] (%d) terminated by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
     
     kill(fgjobpid,SIGINT);
     
@@ -441,7 +475,7 @@ void sigtstp_handler(int sig)
 {
     //send SIGTSTP to foreground job
     int fgjobpid=fgpid(jobs);
-    printf("suspend,see the fgjob:%d",fgjobpid);
+    printf("Job [%d] (%d) stopped by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
     kill(fgjobpid,SIGTSTP);
 
     //update joblist
@@ -449,7 +483,7 @@ void sigtstp_handler(int sig)
     deletejob(jobs,fgjobpid);
     addjob(jobs,fgjobpid,ST,job->cmdline);
 
-    listjobs(jobs);
+    //listjobs(jobs);
 
     return;
 }
