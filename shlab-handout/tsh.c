@@ -322,52 +322,32 @@ void do_bgfg(char **argv)
     if(strcmp(firstarg,"bg")==0){
         /*change a stopped bg job to running bg job*/
         struct job_t *job=getjobjid(jobs,jid);
-       
         int pid=job->pid; //value assignment
-        
-        char *cmd=malloc(strlen(job->cmdline)+1);
-        if(cmd==NULL){printf("malloc failed\n");}
-        strcpy(cmd,job->cmdline);
-
-        deletejob(jobs,pid);
+        job->state=BG;
+ 
         kill(pid,SIGCONT);
-        addjob(jobs,pid,BG,cmd);
-
     }else{
         /*change a stopped or running bg job to running in fg*/
         struct job_t *job=getjobjid(jobs,jid);
         int pid=job->pid;
-
-        char *cmd=malloc(strlen(job->cmdline)+1);
-        if(cmd==NULL){printf("malloc failed\n");}
-        strcpy(cmd,job->cmdline);
-
-        deletejob(jobs,pid);
-        addjob(jobs,pid,FG,cmd);
+        int status=job->state;
+  
+        if(status==FG){printf("don't care about FG process"); return;}
 
         pid_t prefg=fgpid(jobs);
         if(prefg!=0){
             struct job_t *prefgjob=getjobpid(jobs,prefg);
-
-            char *precmd=malloc(strlen(prefgjob->cmdline)+1);
-            if(precmd==NULL){printf("malloc failed\n");}
-            strcpy(precmd,prefgjob->cmdline);
-
-            //update jobs struct
-            deletejob(jobs,prefg);
-            addjob(jobs,prefg,BG,precmd);
+            prefgjob->state=BG;
         }    
+      
+        job->state=FG;
 
         //send continue signal
         kill(pid,SIGCONT);
 
         //should block until current fg process finish
         waitfg(pid);       
-    }
-     
-
-    
-    
+    }   
     return;
 }
 
@@ -479,13 +459,7 @@ void sigtstp_handler(int sig)
 
     //update joblist
     struct job_t *job=getjobpid(jobs,fgjobpid);
-    char *cmd=malloc(strlen(job->cmdline)+1);
-    if(cmd==NULL){printf("malloc failed\n");}
-    strcpy(cmd,job->cmdline);
-
-    deletejob(jobs,fgjobpid);
-    addjob(jobs,fgjobpid,ST,cmd);
-
+    job->state=ST;
 
     return;
 }
