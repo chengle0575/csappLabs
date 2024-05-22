@@ -207,7 +207,7 @@ void eval(char *cmdline)
                         waitfg(pid); 
                     }else{
                         //add to joblist
-                        addjob(jobs,getpid(),BG,cmdline);
+                        addjob(jobs,pid,BG,cmdline);
                     }          
 
         }
@@ -346,6 +346,7 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    
     while(1){
         pid_t fgp=fgpid(jobs);
         if(pid!=fgp){
@@ -353,18 +354,8 @@ void waitfg(pid_t pid)
         }
     }
     return;
-    /*
-    //allocate memory for wstatus
-    int *wstatus=malloc(sizeof(int));
-
-
-    pid_t childpid=waitpid(pid,wstatus,0);
-    if(childpid==-1){printf("wait failed,check eeror:%s",errno);}
-
-    free(wstatus);
-    deletejob(jobs,pid);
-    return;
-    */
+    
+    
 }
 
 /*****************
@@ -380,25 +371,26 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-    //reap all zombies
+    //reap [all] zombies
+    
     printf("a child stopped or terminates.\n");
 
+
     int *wstatus=malloc(sizeof(int));
+    if(wstatus==NULL){printf("malloc failed.\n");}
+
     pid_t childpid=waitpid(-1,wstatus,WNOHANG);// BY default option, only wait for termination
-    if(childpid==-1){
-        printf("wait failed\n");
-        printf("check eror:%s",errno);
-    }else if (childpid!=0)
+    if(childpid==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
+    else if (childpid!=0)
     {
+        printf("child pid is:%d\n",childpid);
         deletejob(jobs,childpid);
-    }else{ 
-        //childpid=0
-         //no waitable child process in termination state
+    }else{ //childpid=0 no waitable child process in termination state
          printf("no waitable child\n");
     }
     
     free(wstatus);
-    listjobs(jobs);
+   
     return;
 }
 
