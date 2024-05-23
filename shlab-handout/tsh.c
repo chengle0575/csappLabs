@@ -169,6 +169,14 @@ int main(int argc, char **argv)
 void eval(char *cmdline) 
 {
 
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddser(&mask,SIGCHLD);
+
+
+    sigprocmask(SIG_BLOCK,&mask,NULL);
+
+
     char **argv=malloc(sizeof(char *)*MAXLINE); /*initialized and allocate memory for it*/
     
     int isbg=parseline(cmdline,argv); /*is 1 if running in bg*/
@@ -186,9 +194,8 @@ void eval(char *cmdline)
                     //change pid to another group, thus working in bg
                     int err=setpgid(getpid(),0);
                     if(err!=0){printf("error set new group:%s\n",strerror(errno));} 
-                        
                 }
-
+               
                 //execute
                 int err=execve(argv[0],argv,NULL);
                 if(err!=0){printf("error execution:%s\n",strerror(errno));}
@@ -198,13 +205,20 @@ void eval(char *cmdline)
             default:/*parent process*/  
                     /*addjob has to be performed in parent process, since child process and parent process
                       own memory seperately. Changes to jobs in the child process will lose after child process terminates.*/           
+                    
+                    
                     if(!isbg){
                         /*should wait until the child finish*/
                         addjob(jobs,pid,FG,cmdline);
+                        /*when child process exist before addjob, the os send SIGCHLD
+                         to parent process before parent addjob to the job list.
+                         Use signal mask to delay handle of SIGCHLD */
+                        sigprocmask(SIG_UNBLOCK,&mask,NULL); 
                         waitfg(pid); 
                     }else{
                         //add to joblist
                         addjob(jobs,pid,BG,cmdline);
+                        sigprocmask(SIG_UNBLOCK,&mask,NULL);
                         printf("[%d] (%d) %s",pid2jid(pid),pid,cmdline);
                     }          
 
@@ -362,7 +376,7 @@ void waitfg(pid_t pid)
         if(pid!=fgp){
             break;
         }
-        usleep(1000);
+        sleep(0);
     }
     return;
 }
@@ -386,44 +400,60 @@ void sigchld_handler(int sig)
       the signal is discarded.
       .*/
     
+    printf("process %d is handling\n",getpid());
     int *wstatus=malloc(sizeof(int));
     if(wstatus==NULL){printf("malloc failed.\n");}
 
     int maxjob=maxjid(jobs);
-    //printf("maxjob:%d\n",maxjob);
+    printf("maxjob:%d\n",maxjob);
     
     //reap the process if it is terminated child
     while(maxjob>=1){
         struct job_t *jobi=getjobjid(jobs,maxjob);
         
         while(jobi==NULL){ //maybe previous job not finished delete when counting maxjob, but finished before here.
+            printf("job1: %d is null\n",maxjob);
             maxjob--;
             if(maxjob<1){
                 return;
             }
             jobi=getjobjid(jobs,maxjob);
         }
+
+
+        printf("already here\n");
+
         maxjob--;
+
         pid_t pidc=jobi->pid;
-        //printf("checking:%d\n",pidc);
-        int err=waitpid(pidc,wstatus,WNOHANG);// BY default option, only wait for termination
+        printf("checking:%d\n",pidc);
+        int err=waitpid(pidc,wstatus,WNOHANG || WUNTRACED);// BY default option, only wait for termination
         if(err==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
         else if (err!=0)
         {   //printf("child pid is:%d\n",err);
-            deletejob(jobs,err);
-        }else{ //printf("child not in terminate state\n");} //childpid=0 no waitable child process in termination state
-        }
+            if(WIFEXITED(*wstatus)){
+                
+                printf("a process %d,%s terminated normally\n",err,jobi->cmdline);
+                deletejob(jobs,err);
+            }
+            else if( WIFSIGNALED(*wstatus)){
+                
+                printf("a process %d terminated by signal\n",err);
+                deletejob(jobs,err);
+
+            }
+            else if(WIFSTOPPED(*wstatus)){ 
+                //update joblist
+                struct job_t *job=getjobpid(jobs,err);
+                job->state=ST;
+                printf("a process %d stopped\n",err);
+                }
+
+        }else{ printf("child not in terminate or stopped state\n");} //childpid=0 no waitable child process in termination state
+        //}
         
     }
 
-    /*
-    pid_t childpid=waitpid(-1,wstatus,WNOHANG);// BY default option, only wait for termination
-    if(childpid==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
-    else if (childpid!=0)
-    {   printf("child pid is:%d\n",childpid);
-        deletejob(jobs,childpid);
-    }else{ printf("no waitable child\n");} //childpid=0 no waitable child process in termination state
-    */
     free(wstatus);
    
     return;
@@ -440,7 +470,7 @@ void sigint_handler(int sig)
     int fgjobpid=fgpid(jobs);
     printf("Job [%d] (%d) terminated by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
     
-    kill(-fgjobpid,SIGINT); //use -pid to send to every process in this group
+    kill(-fgjobpid,sig); //use -pid to send to every process in this group
     
     return;
 }
@@ -457,11 +487,8 @@ void sigtstp_handler(int sig)
     if(fgjobpid==0){printf("no fg process yet\n");return;}
    
     printf("Job [%d] (%d) stopped by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
-    kill(-fgjobpid,SIGTSTP);
 
-    //update joblist
-    struct job_t *job=getjobpid(jobs,fgjobpid);
-    job->state=ST;
+    kill(-fgjobpid,sig);
 
     return;
 }
