@@ -66,6 +66,7 @@ void sigchld_handler(int sig);
 void sigtstp_handler(int sig);
 void sigint_handler(int sig);
 
+
 /* Here are helper routines that we've provided for you */
 int parseline(const char *cmdline, char **argv); 
 void sigquit_handler(int sig);
@@ -361,6 +362,7 @@ void waitfg(pid_t pid)
         if(pid!=fgp){
             break;
         }
+        usleep(1000);
     }
     return;
 }
@@ -438,7 +440,7 @@ void sigint_handler(int sig)
     int fgjobpid=fgpid(jobs);
     printf("Job [%d] (%d) terminated by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
     
-    kill(fgjobpid,SIGINT);
+    kill(-fgjobpid,SIGINT); //use -pid to send to every process in this group
     
     return;
 }
@@ -455,7 +457,7 @@ void sigtstp_handler(int sig)
     if(fgjobpid==0){printf("no fg process yet\n");return;}
    
     printf("Job [%d] (%d) stopped by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
-    kill(fgjobpid,SIGTSTP);
+    kill(-fgjobpid,SIGTSTP);
 
     //update joblist
     struct job_t *job=getjobpid(jobs,fgjobpid);
@@ -463,6 +465,9 @@ void sigtstp_handler(int sig)
 
     return;
 }
+
+
+
 
 /*********************
  * End signal handlers
