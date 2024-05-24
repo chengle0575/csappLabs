@@ -193,7 +193,7 @@ void eval(char *cmdline)
 
                 //execute
                 int err=execve(argv[0],argv,NULL);
-                if(err!=0){printf("error execution:%s\n",strerror(errno));}
+                if(err!=0){printf("Command not found\n");}
       
                 break;
 
@@ -327,25 +327,43 @@ void do_bgfg(char **argv)
 {
     char *firstarg=argv[0];
     char *secondarg=argv[1]; //the jid to modify
-    int jid=atoi(secondarg+1);
+    int jid;
+    int pid;
+    struct job_t *job;
 
+    //input error handle
+    if(secondarg==NULL){ printf("%s command requires PID or %%jobid argument\n",firstarg);return;}
+    if(secondarg[0]=='%'){ //input is jid
+        jid=atoi(secondarg+1);   
+        job=getjobjid(jobs,jid);
+
+        if(job==NULL){{printf("No such job\n"); return;}}
+
+        pid=job->pid; //value assignment
+    }
+    else if(atoi(secondarg)){
+        pid=atoi(secondarg);
+        jid=pid2jid(pid);
+
+        if(jid==0){printf("No such process\n"); return;}
+
+        job=getjobjid(jobs,jid);
+    }else{
+        
+        printf("%s: argument must be a PID or %%jobid\n",firstarg);
+        return;
+    }
+    
+    
+   
     if(strcmp(firstarg,"bg")==0){
         /*change a stopped bg job to running bg job*/
-        struct job_t *job=getjobjid(jobs,jid);
-        int pid=job->pid; //value assignment
         job->state=BG;
- 
         kill(-pid,SIGCONT);
     }else{
         /*change a stopped or running bg job to running in fg*/
-        struct job_t *job=getjobjid(jobs,jid);
-        int pid=job->pid;
-    
         job->state=FG;
-
-        //send continue signal
         kill(-pid,SIGCONT);
-
         //should block until current fg process finish
         waitfg(pid);       
     }   
@@ -398,7 +416,6 @@ void sigchld_handler(int sig)
         struct job_t *jobi=getjobjid(jobs,maxjob);
         
         while(jobi==NULL){ //maybe previous job not finished delete when counting maxjob, but finished before here.
-            printf("job1: %d is null\n",maxjob);
             maxjob--;
             if(maxjob<1){
                 return;
@@ -427,8 +444,8 @@ void sigchld_handler(int sig)
             }
     
         }else if(err==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
-        else{ printf("child not in terminate or stopped state\n");} //childpid=0 no waitable child process in termination state
-        //}
+        else{// printf("child not in terminate or stopped state\n");} //childpid=0 no waitable child process in termination state
+        }
         
     }
 
