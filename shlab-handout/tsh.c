@@ -168,21 +168,20 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
-
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask,SIGCHLD);
-
-
-    sigprocmask(SIG_BLOCK,&mask,NULL);
-
-
     char **argv=malloc(sizeof(char *)*MAXLINE); /*initialized and allocate memory for it*/
     
     int isbg=parseline(cmdline,argv); /*is 1 if running in bg*/
 
     if(builtin_cmd(argv)!=1){ 
         /*deal with not built-in command here*/
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask,SIGCHLD);
+
+
+        sigprocmask(SIG_BLOCK,&mask,NULL);
+
+
         pid_t pid=fork();
 
         switch(pid){
@@ -195,7 +194,7 @@ void eval(char *cmdline)
                 //execute
                 int err=execve(argv[0],argv,NULL);
                 if(err!=0){printf("error execution:%s\n",strerror(errno));}
-                
+      
                 break;
 
             default:/*parent process*/  
@@ -336,22 +335,16 @@ void do_bgfg(char **argv)
         int pid=job->pid; //value assignment
         job->state=BG;
  
-        kill(pid,SIGCONT);
+        kill(-pid,SIGCONT);
     }else{
         /*change a stopped or running bg job to running in fg*/
         struct job_t *job=getjobjid(jobs,jid);
         int pid=job->pid;
     
-        pid_t prefg=fgpid(jobs);
-        if(prefg!=0){
-            struct job_t *prefgjob=getjobpid(jobs,prefg);
-            prefgjob->state=BG;
-        }    
-      
         job->state=FG;
 
         //send continue signal
-        kill(pid,SIGCONT);
+        kill(-pid,SIGCONT);
 
         //should block until current fg process finish
         waitfg(pid);       
