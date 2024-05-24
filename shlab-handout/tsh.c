@@ -171,7 +171,7 @@ void eval(char *cmdline)
 
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddser(&mask,SIGCHLD);
+    sigaddset(&mask,SIGCHLD);
 
 
     sigprocmask(SIG_BLOCK,&mask,NULL);
@@ -189,13 +189,9 @@ void eval(char *cmdline)
             case -1:
                 printf("fork failed\n");
             case 0:/*child process*/
-       
-                if(isbg){ 
-                    //change pid to another group, thus working in bg
-                    int err=setpgid(getpid(),0);
-                    if(err!=0){printf("error set new group:%s\n",strerror(errno));} 
-                }
-               
+                setpgid(0,0);
+                sigprocmask(SIG_UNBLOCK,&mask,NULL); 
+
                 //execute
                 int err=execve(argv[0],argv,NULL);
                 if(err!=0){printf("error execution:%s\n",strerror(errno));}
@@ -345,10 +341,7 @@ void do_bgfg(char **argv)
         /*change a stopped or running bg job to running in fg*/
         struct job_t *job=getjobjid(jobs,jid);
         int pid=job->pid;
-        int status=job->state;
-  
-        if(status==FG){printf("don't care about FG process"); return;}
-
+    
         pid_t prefg=fgpid(jobs);
         if(prefg!=0){
             struct job_t *prefgjob=getjobpid(jobs,prefg);
@@ -399,14 +392,14 @@ void sigchld_handler(int sig)
       implies a problem: when a child exit and send signal before the previous zombie chlid is solved,
       the signal is discarded.
       .*/
-    
-    printf("process %d is handling\n",getpid());
+  
     int *wstatus=malloc(sizeof(int));
     if(wstatus==NULL){printf("malloc failed.\n");}
 
     int maxjob=maxjid(jobs);
-    printf("maxjob:%d\n",maxjob);
+    //printf("maxjob:%d\n",maxjob);
     
+
     //reap the process if it is terminated child
     while(maxjob>=1){
         struct job_t *jobi=getjobjid(jobs,maxjob);
@@ -419,37 +412,29 @@ void sigchld_handler(int sig)
             }
             jobi=getjobjid(jobs,maxjob);
         }
-
-
-        printf("already here\n");
-
         maxjob--;
 
         pid_t pidc=jobi->pid;
-        printf("checking:%d\n",pidc);
-        int err=waitpid(pidc,wstatus,WNOHANG || WUNTRACED);// BY default option, only wait for termination
-        if(err==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
-        else if (err!=0)
-        {   //printf("child pid is:%d\n",err);
-            if(WIFEXITED(*wstatus)){
-                
-                printf("a process %d,%s terminated normally\n",err,jobi->cmdline);
-                deletejob(jobs,err);
-            }
-            else if( WIFSIGNALED(*wstatus)){
-                
-                printf("a process %d terminated by signal\n",err);
-                deletejob(jobs,err);
+        //printf("checking:%d\n",pidc);
+        int err=waitpid(pidc,wstatus,WNOHANG|WUNTRACED);// wait for both termination and stopped
 
-            }
-            else if(WIFSTOPPED(*wstatus)){ 
+        if (err!=0)
+        {   //printf("child pid is:%d\n",err);
+            if(WIFSTOPPED(*wstatus)){ 
                 //update joblist
                 struct job_t *job=getjobpid(jobs,err);
                 job->state=ST;
-                printf("a process %d stopped\n",err);
-                }
-
-        }else{ printf("child not in terminate or stopped state\n");} //childpid=0 no waitable child process in termination state
+                //printf("a process %d stopped\n",err);
+            } else if(WIFEXITED(*wstatus)){ 
+                //printf("a process %d,%s terminated normally\n",err,jobi->cmdline);
+                deletejob(jobs,err);
+            } else if( WIFSIGNALED(*wstatus)){
+                //printf("a process %d terminated by signal\n",err);
+                deletejob(jobs,err);
+            }
+    
+        }else if(err==-1){ printf("wait failed,check error:%s\n",strerror(errno));}
+        else{ printf("child not in terminate or stopped state\n");} //childpid=0 no waitable child process in termination state
         //}
         
     }
