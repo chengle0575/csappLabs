@@ -193,7 +193,7 @@ void eval(char *cmdline)
 
                 //execute
                 int err=execve(argv[0],argv,NULL);
-                if(err!=0){printf("Command not found\n");}
+                if(err!=0){printf("Command not found\n"); exit(1);}
       
                 break;
 
@@ -434,12 +434,12 @@ void sigchld_handler(int sig)
                 //update joblist
                 struct job_t *job=getjobpid(jobs,err);
                 job->state=ST;
-                //printf("a process %d stopped\n",err);
+                printf("Job [%d] (%d) stopped by signal %d\n",pid2jid(err),err,SIGTSTP);
             } else if(WIFEXITED(*wstatus)){ 
                 //printf("a process %d,%s terminated normally\n",err,jobi->cmdline);
                 deletejob(jobs,err);
             } else if( WIFSIGNALED(*wstatus)){
-                //printf("a process %d terminated by signal\n",err);
+                printf("Job [%d] (%d) terminated by signal %d\n",pid2jid(err),err,SIGINT);
                 deletejob(jobs,err);
             }
     
@@ -463,8 +463,6 @@ void sigint_handler(int sig)
 {
     //send SIGINT to foreground job
     int fgjobpid=fgpid(jobs);
-    printf("Job [%d] (%d) terminated by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
-    
     kill(-fgjobpid,sig); //use -pid to send to every process in this group
     
     return;
@@ -480,8 +478,6 @@ void sigtstp_handler(int sig)
     //send SIGTSTP to foreground job
     int fgjobpid=fgpid(jobs);
     if(fgjobpid==0){printf("no fg process yet\n");return;}
-   
-    printf("Job [%d] (%d) stopped by signal %d\n",pid2jid(fgjobpid),fgjobpid,sig);
 
     kill(-fgjobpid,sig);
 
