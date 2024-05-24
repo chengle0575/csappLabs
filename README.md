@@ -65,3 +65,7 @@
    After fork(), parent and child process are concurrent.
    
    The signal handler runs concurrent with the main program.
+
+8. SIGNAL handler will be inheritaged from parent process.
+
+   However, when use **exec()  system call** to execute a new program. **All memory of current child process will be replaced by the new program's memory.** This implies that the handler, data, variable.... are different now!
