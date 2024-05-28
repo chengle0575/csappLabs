@@ -5,6 +5,7 @@
 #include <string.h>
 #include <arpa/inet.h> 
 #include <unistd.h>
+#include <stdlib.h>
 
 
 /* Recommended max cache and object sizes */
@@ -17,23 +18,21 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 
 //prototype
-void proxyserverinit(char *);
+void proxyserverinit(char *,uint16_t);
 
-int main()
+int main(int argc,char * argv[])
 {
     
     printf("%s", user_agent_hdr);
-
-    //parse the parameter read from command line
-    
-    
-    //buffer to 
+     
     char buffer[MAX_CACHE_SIZE];
     
+    uint16_t port=(uint16_t)atoi(argv[1]);
+    //printf("port is %d\n",port);
 
-    //read the data rom origin client to buffer
-    proxyserverinit(buffer);
-
+    proxyserverinit(buffer,port);
+    
+  
 
     return 0;
 }
@@ -41,7 +40,7 @@ int main()
 
 
 
-void proxyserverinit(char *buffer){
+void proxyserverinit(char *buffer,uint16_t port){
     //work as server to the original client
 
     //create a internet socket
@@ -54,7 +53,6 @@ void proxyserverinit(char *buffer){
     memset(&myaddr,0,sizeof(myaddr)); //clear the memory for this socket address and fill them all 0
     myaddr.sin_family=AF_INET;
     inet_pton(AF_INET,"0.0.0.0",&(myaddr.sin_addr)); //converts numbers-and-dots notation into network byte order, and copies to myaddr
-    uint16_t port=8000;
     myaddr.sin_port=htons(port); //convert port number to network byte order and assign to myaddr
 
     
@@ -77,8 +75,52 @@ void proxyserverinit(char *buffer){
         if(connectfd==-1){printf("not able to accept\n");}
         else{
              //read buffer
-             read(connectfd,buffer,sizeof(buffer)); //read from file to memory
+             read(connectfd,buffer,MAX_CACHE_SIZE); //read from file to memory
              printf("server recived:%s\n",buffer);
+
+               //paser the request, decide whether a valid HTTP request
+            if(strncmp(buffer,"GET",3)==0){
+                printf("this request start with GET\n");
+
+                if(strncmp(buffer+4,"http://",7)){
+                    printf("invalid http request\n");
+             
+                }else{
+                    
+                    
+                    char *hostend=strchr(buffer+11,'/');
+                    char *pathend=strchr(buffer+11,' ');
+
+                    int hostlen=hostend-(buffer+11);
+                    char *host=malloc(hostlen+1);
+                    strncpy(host, buffer + 11, hostlen);
+                    host[hostlen] = '\0';
+
+                    int pathlen=pathend-(buffer+11);
+                    char *path=malloc(pathlen+1);
+                    strncpy(path, buffer + 11 + hostlen, pathlen);
+                    path[pathlen] = '\0';
+
+                    printf("this is host name : %s\n",host);
+                    printf("this is pat name:%s\n",path);
+
+
+                    //init proxyclient and connect to the original server
+                    getaddrinfo()
+                    proxyclientinit(,80,path);
+                }
+
+
+            }else if(strncmp(buffer,"POST",4)==0){
+                printf("this request start with POST\n");
+            }
+            else{
+                printf("invalid request\n");
+            }
+            
+
+             //char * reply="<p>see me</p>\n";
+            // write(connectfd,reply,strlen(reply));
         }
         
        
