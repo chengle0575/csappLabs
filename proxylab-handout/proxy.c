@@ -6,7 +6,8 @@
 #include <arpa/inet.h> 
 #include <unistd.h>
 #include <stdlib.h>
-
+#include <netdb.h>
+#include <errno.h>
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
@@ -19,19 +20,21 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 //prototype
 void proxyserverinit(char *,uint16_t);
+void proxyclientinit(struct sockaddr_in *, char * );
+int parseproxyrequest(char *,char*,char*,char*);
 
 int main(int argc,char * argv[])
 {
     
     printf("%s", user_agent_hdr);
      
-    char buffer[MAX_CACHE_SIZE];
+    char buffer[MAX_OBJECT_SIZE];
     
     uint16_t port=(uint16_t)atoi(argv[1]);
     //printf("port is %d\n",port);
 
     proxyserverinit(buffer,port);
-    
+    //proxyclientinit("127.0.0.1",(uint16_t )80,"/");
   
 
     return 0;
@@ -45,10 +48,10 @@ void proxyserverinit(char *buffer,uint16_t port){
 
     //create a internet socket
     int proxyfds=socket(AF_INET,SOCK_STREAM,0);
-    if(proxyfds==-1){printf("create proxy client fd failed\n");}
+    if(proxyfds==-1){printf("create proxy server fd failed\n");}
     
     
-    //struct the address
+    //struct the sockaddress, the ip address and port should be stored in network byte order(big endian)
     struct sockaddr_in myaddr; //sin_port and sin_addr memebers shall be in network byte order
     memset(&myaddr,0,sizeof(myaddr)); //clear the memory for this socket address and fill them all 0
     myaddr.sin_family=AF_INET;
@@ -78,49 +81,34 @@ void proxyserverinit(char *buffer,uint16_t port){
              read(connectfd,buffer,MAX_CACHE_SIZE); //read from file to memory
              printf("server recived:%s\n",buffer);
 
-               //paser the request, decide whether a valid HTTP request
-            if(strncmp(buffer,"GET",3)==0){
-                printf("this request start with GET\n");
-
-                if(strncmp(buffer+4,"http://",7)){
-                    printf("invalid http request\n");
+             //paser the request, decide whether a valid HTTP request
+             char* originalserverhostname=malloc(MAX_OBJECT_SIZE);
+             char *filepath=malloc(MAX_OBJECT_SIZE);
+             char port[10];
              
-                }else{
+             
+             if(parseproxyrequest(buffer,originalserverhostname,port,filepath)!=-1){
+                
+                    //conver originalserver's hostname into socket address
+                    struct addrinfo *res;
+                    struct addrinfo hints;
+                    memset(&hints,0,sizeof(hints));
+                    hints.ai_family=AF_INET; //only remains those ip using ipv4
+                    hints.ai_socktype=SOCK_STREAM; //only remmain those socket of STREAM type
+
+                    if(getaddrinfo(originalserverhostname,port,&hints,&res)!=0){printf("getaddrinfo error\n");};
                     
-                    
-                    char *hostend=strchr(buffer+11,'/');
-                    char *pathend=strchr(buffer+11,' ');
-
-                    int hostlen=hostend-(buffer+11);
-                    char *host=malloc(hostlen+1);
-                    strncpy(host, buffer + 11, hostlen);
-                    host[hostlen] = '\0';
-
-                    int pathlen=pathend-(buffer+11);
-                    char *path=malloc(pathlen+1);
-                    strncpy(path, buffer + 11 + hostlen, pathlen);
-                    path[pathlen] = '\0';
-
-                    printf("this is host name : %s\n",host);
-                    printf("this is pat name:%s\n",path);
+                    struct sockaddr_in *originserversockaddr=(struct sockaddr_in *)res->ai_addr;
+    
+                    freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
+                   
+                    proxyclientinit(originserversockaddr,filepath);
+             
+             };
 
 
-                    //init proxyclient and connect to the original server
-                    getaddrinfo()
-                    proxyclientinit(,80,path);
-                }
-
-
-            }else if(strncmp(buffer,"POST",4)==0){
-                printf("this request start with POST\n");
-            }
-            else{
-                printf("invalid request\n");
-            }
-            
-
-             //char * reply="<p>see me</p>\n";
-            // write(connectfd,reply,strlen(reply));
+            free(originalserverhostname);
+            free(filepath);
         }
         
        
@@ -131,30 +119,42 @@ void proxyserverinit(char *buffer,uint16_t port){
 
 
 
-void proxyclientinit(char *addr, uint16_t port, char * buffer){
+void proxyclientinit(struct sockaddr_in * originserversockaddr, char * filepath){
     /*work as client to the original server*/
     
     //create a intenet socket
     int proxyfdc=socket(AF_INET,SOCK_STREAM,0);
     if(proxyfdc==-1){printf("create proxy client fd failed\n");}
 
-    //struct the socket address
-    struct sockaddr_in originalserver;
-    originalserver.sin_family=AF_INET;
-    inet_pton(AF_INET,addr,&(originalserver.sin_addr));
-    originalserver.sin_port=htons(port);
 
-    if(connect(proxyfdc,(struct sockaddr *)&originalserver,sizeof(addr))==-1)
-        {printf("connect to original server fail\n"); 
+    //struct the HTTP request
+    char *httprequest=malloc(MAX_OBJECT_SIZE);
+    memset(httprequest,0,sizeof httprequest);
+    printf("in proxyclient,filepath:%s\n",filepath);
+    sprintf(httprequest,"GET %s HTTP/1.0",filepath);
+
+
+    if(connect(proxyfdc,(struct sockaddr *)originserversockaddr,sizeof(struct sockaddr_in))==-1)
+        {printf("connect to original server fail,erro:%s\n",strerror(errno)); 
          return;
         }
     else{
         printf("connected to original server successfully\n");
 
-        //keep send data from buffer to the original server
+        //send httprequest to the original server
+        printf("GOING TO WIRTE:%s to the socket connect to orginal server\n",httprequest);
+        write(proxyfdc,httprequest,strlen(httprequest));
+        free(httprequest);
+
+        //reply from originalserver
+        char httpreply[MAX_OBJECT_SIZE];
+
         while(1){
-              write(proxyfdc,buffer,sizeof(buffer));
-              //do some error checking, when stop and end
+              //checking socket to see the reply of original server
+              if(read(proxyfdc,httpreply,sizeof httpreply)>0){
+                printf("this is server reply:%s\n",httpreply);
+                break;
+              };
         }
     
     };
@@ -165,5 +165,66 @@ void proxyclientinit(char *addr, uint16_t port, char * buffer){
     
 }
 
+int parseproxyrequest(char *buffer, char* originalserverhostname,char* port,char *filepath){
+        char method[MAX_OBJECT_SIZE],uri[MAX_OBJECT_SIZE],version[MAX_OBJECT_SIZE];
+        
+        int v= sscanf(buffer,"%s %s %s",method,uri,version);  
+       /*sscanf method: "%s %s %s" tell sscanf how to interpret the buffer string. (%s stops reading at whilespace char)
+                        Each %s is a string, and the space between the %s means that sscanf should skip over any space.
+                        method,uri,version are pointers to the char arrays where sscanf will store the parsed strings*/
+        printf("memthod:%s, uri:%s,version:%s\n",method,uri,version);
 
+        if(strcasecmp(method,"GET")){
+            printf("this method is not implemented\n");
+            return -1;
+        }
+        if(!strstr(uri,"http://")/*&&!strstr(uri,"https://")*/){
+            printf("This URI is not started with http:// \n");
+            return -1;
+        }
+
+        
+        //example of uri :   http://www.abcd/efg
+        //find the server ip to connect, and identify the request static or dynamic
+        if(!strstr(uri,"cgi-bin")){
+            /* the uri doesn't contain "cgi-bin", require static content from server disk*/
+            char *pt=strchr(uri+7,':');
+            char *p=strchr(uri+7,'/'); //find the first occurence of '/' after https://
+            char *endp=uri+strlen(uri);
+
+            if(pt!=NULL){
+                //port exits
+                strncpy(originalserverhostname,uri+7,pt-(uri+7));
+
+                if(p!=NULL){
+                    //filepath exist
+                    strncpy(port,pt+1,p-pt);
+                    strncpy(filepath,p,endp-p);
+                }else{
+                    strncpy(port,pt+1,endp-pt);
+                    strcpy(filepath,"/home.html");//use default filepath when no filepath declared
+                }
+            }else{
+                strcpy(port,"80"); //default is "80"
+                if(p!=NULL){
+                    //filepath exist
+                     strncpy(filepath,p,endp-p);
+                     strncpy(originalserverhostname,uri+7,p-(uri+7));
+                }else{
+                    strcpy(filepath,"/home.html");//use default filepath when no filepath declared
+                    strncpy(originalserverhostname,uri+7,endp-(uri+7));
+                }
+
+            }
+            
+            
+            printf("this is hostname:%s ,port:%s,and path:%s\n",originalserverhostname,port,filepath);
+            return 0;
+        }else{
+            /* the uri contains "cgi-bin", require dynamic content from server calling a program with paramenters */
+            return 1;
+        }
+
+
+}
 
