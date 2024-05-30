@@ -20,7 +20,7 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 //prototype
 void proxyserverinit(char *,uint16_t);
-void proxyclientinit(struct sockaddr_in *, char * );
+void proxyclientinit(struct sockaddr_in *, char* ,char * );
 int parseproxyrequest(char *,char*,char*,char*);
 
 int main(int argc,char * argv[])
@@ -102,7 +102,7 @@ void proxyserverinit(char *buffer,uint16_t port){
     
                     freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
                    
-                    proxyclientinit(originserversockaddr,filepath);
+                    proxyclientinit(originserversockaddr,originalserverhostname,filepath);
              
              };
 
@@ -119,7 +119,7 @@ void proxyserverinit(char *buffer,uint16_t port){
 
 
 
-void proxyclientinit(struct sockaddr_in * originserversockaddr, char * filepath){
+void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserverdomainadd, char * filepath){
     /*work as client to the original server*/
     
     //create a intenet socket
@@ -131,7 +131,15 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char * filepath)
     char *httprequest=malloc(MAX_OBJECT_SIZE);
     memset(httprequest,0,sizeof httprequest);
     printf("in proxyclient,filepath:%s\n",filepath);
-    sprintf(httprequest,"GET %s HTTP/1.0",filepath);
+    sprintf(httprequest,"GET %s HTTP/1.0\r\n",filepath);
+
+    char *httpheader=malloc(MAX_OBJECT_SIZE);
+    memset(httpheader,0,sizeof httpheader);
+    sprintf(httpheader,"Host:%s\r\n",originserverdomainadd);
+    strcat(httpheader,user_agent_hdr);
+    strcat(httpheader,"\r\n");
+
+    strcat(httprequest,httpheader);
 
 
     if(connect(proxyfdc,(struct sockaddr *)originserversockaddr,sizeof(struct sockaddr_in))==-1)
@@ -142,16 +150,19 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char * filepath)
         printf("connected to original server successfully\n");
 
         //send httprequest to the original server
-        printf("GOING TO WIRTE:%s to the socket connect to orginal server\n",httprequest);
+        
         write(proxyfdc,httprequest,strlen(httprequest));
         free(httprequest);
+
+
+
 
         //reply from originalserver
         char httpreply[MAX_OBJECT_SIZE];
 
         while(1){
               //checking socket to see the reply of original server
-              if(read(proxyfdc,httpreply,sizeof httpreply)>0){
+              if(read(proxyfdc,httpreply,MAX_OBJECT_SIZE)>0){
                 printf("this is server reply:%s\n",httpreply);
                 break;
               };
