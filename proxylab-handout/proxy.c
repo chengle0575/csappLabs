@@ -19,6 +19,7 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 
 //prototype
+ssize_t rio_readn(int, void *, size_t ) ;
 void proxyserverinit(char *,uint16_t);
 void proxyclientinit(struct sockaddr_in *, char* ,char * ,char*);
 int parseproxyrequest(char *,char*,char*,char*);
@@ -81,12 +82,12 @@ void proxyserverinit(char *buffer,uint16_t port){
              read(connectfd,buffer,MAX_CACHE_SIZE); //read from file to memory
              printf("server recived:%s\n",buffer);
 
-             //paser the request, decide whether a valid HTTP request
+             //variable to store  parse
              char* originalserverhostname=malloc(MAX_OBJECT_SIZE);
              char *filepath=malloc(MAX_OBJECT_SIZE);
              char port[10];
              
-             
+             //paser the request, decide whether a valid HTTP request
              if(parseproxyrequest(buffer,originalserverhostname,port,filepath)!=-1){
                 
                     //conver originalserver's hostname into socket address
@@ -100,7 +101,7 @@ void proxyserverinit(char *buffer,uint16_t port){
                     
                     struct sockaddr_in *originserversockaddr=(struct sockaddr_in *)res->ai_addr;
     
-                    freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
+                     freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
                    
 
                      char httpreply[MAX_OBJECT_SIZE];
@@ -126,7 +127,7 @@ void proxyserverinit(char *buffer,uint16_t port){
 }
 
 
-void 
+//void 
 
 
 
@@ -141,7 +142,7 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
     //struct the HTTP request
     char *httprequest=malloc(MAX_OBJECT_SIZE);
     memset(httprequest,0,sizeof httprequest);
-    printf("in proxyclient,filepath:%s\n",filepath);
+   
     sprintf(httprequest,"GET %s HTTP/1.0\r\n",filepath);
 
     char *httpheader=malloc(MAX_OBJECT_SIZE);
@@ -159,7 +160,7 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
         }
     else{
         printf("connected to original server successfully\n");
-
+        printf("http request is :%s\n",httprequest);
         //send httprequest to the original server
 
         write(proxyfdc,httprequest,strlen(httprequest));
@@ -170,7 +171,7 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
 
         while(1){
               //checking socket to see the reply of original server
-              if(read(proxyfdc,httpreply,MAX_OBJECT_SIZE)>0){
+              if(rio_readn(proxyfdc,httpreply,MAX_OBJECT_SIZE)>0){
                 printf("this is server reply:%s\n",httpreply);
                 break;
               };
@@ -209,7 +210,9 @@ int parseproxyrequest(char *buffer, char* originalserverhostname,char* port,char
 
             if(pt!=NULL){
                 //port exits
-                strncpy(originalserverhostname,uri+7,pt-(uri+7));
+                int hostnamelenth=pt-(uri+7);
+                strncpy(originalserverhostname,uri+7,hostnamelenth);
+                originalserverhostname[hostnamelenth]='\0';
 
                 if(p!=NULL){
                     //filepath exist
@@ -239,13 +242,13 @@ int parseproxyrequest(char *buffer, char* originalserverhostname,char* port,char
 
                     int hostnamelenth=p-(uri+7);
                     strncpy(originalserverhostname,uri+7,hostnamelenth);
-                    originalserverhostname[hostnamelenth]='0';
+                    originalserverhostname[hostnamelenth]='\0';
                 }else{
                     strcpy(filepath,"/home.html\0");//use default filepath when no filepath declared
                     
                     int hostnamelenth=endp-(uri+7);
                     strncpy(originalserverhostname,uri+7,hostnamelenth);
-                    originalserverhostname[hostnamelenth]='0';
+                    originalserverhostname[hostnamelenth]='\0';
                 }
 
             }
