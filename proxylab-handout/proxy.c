@@ -20,7 +20,7 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 //prototype
 void proxyserverinit(char *,uint16_t);
-void proxyclientinit(struct sockaddr_in *, char* ,char * );
+void proxyclientinit(struct sockaddr_in *, char* ,char * ,char*);
 int parseproxyrequest(char *,char*,char*,char*);
 
 int main(int argc,char * argv[])
@@ -75,8 +75,8 @@ void proxyserverinit(char *buffer,uint16_t port){
     while (1)
     {
         int connectfd=accept(proxyfds,&originclientaddr,&addlen); 
-        if(connectfd==-1){printf("not able to accept\n");}
-        else{
+
+        
              //read buffer
              read(connectfd,buffer,MAX_CACHE_SIZE); //read from file to memory
              printf("server recived:%s\n",buffer);
@@ -102,14 +102,22 @@ void proxyserverinit(char *buffer,uint16_t port){
     
                     freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
                    
-                    proxyclientinit(originserversockaddr,originalserverhostname,filepath);
+
+                     char httpreply[MAX_OBJECT_SIZE];
+
+                    proxyclientinit(originserversockaddr,originalserverhostname,filepath,httpreply);
+
+
+                    //write to connectfd reply to original client
+                    write(connectfd,httpreply,strlen(httpreply));
+                    printf("reply to original server\n");
              
              };
 
 
             free(originalserverhostname);
             free(filepath);
-        }
+        
         
        
 
@@ -118,8 +126,11 @@ void proxyserverinit(char *buffer,uint16_t port){
 }
 
 
+void 
 
-void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserverdomainadd, char * filepath){
+
+
+void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserverdomainadd, char * filepath, char *httpreply){
     /*work as client to the original server*/
     
     //create a intenet socket
@@ -150,15 +161,12 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
         printf("connected to original server successfully\n");
 
         //send httprequest to the original server
-        
+
         write(proxyfdc,httprequest,strlen(httprequest));
+        free(httpheader);
         free(httprequest);
 
-
-
-
         //reply from originalserver
-        char httpreply[MAX_OBJECT_SIZE];
 
         while(1){
               //checking socket to see the reply of original server
@@ -168,11 +176,7 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
               };
         }
     
-    };
-
-
-
-     
+    };   
     
 }
 
@@ -209,21 +213,39 @@ int parseproxyrequest(char *buffer, char* originalserverhostname,char* port,char
 
                 if(p!=NULL){
                     //filepath exist
-                    strncpy(port,pt+1,p-pt);
-                    strncpy(filepath,p,endp-p);
+                  
+                    int portlenth=p-(pt+1);
+                    strncpy(port,pt+1,portlenth);
+                    port[portlenth]='\0'; //add null termination character
+
+                    int filepathlenth=endp-p;
+                    strncpy(filepath,p,filepathlenth);
+                    filepath[filepathlenth]='\0';
                 }else{
-                    strncpy(port,pt+1,endp-pt);
-                    strcpy(filepath,"/home.html");//use default filepath when no filepath declared
+                    int portlenth=endp-(pt+1);
+                    strncpy(port,pt+1,portlenth);
+                    port[portlenth]='\0'; //add null termination character
+
+
+                    strcpy(filepath,"/home.html\0");//use default filepath when no filepath declared
                 }
             }else{
-                strcpy(port,"80"); //default is "80"
+                strcpy(port,"80\0"); //default is "80"
                 if(p!=NULL){
                     //filepath exist
-                     strncpy(filepath,p,endp-p);
-                     strncpy(originalserverhostname,uri+7,p-(uri+7));
+                    int filepathlenth=endp-p;
+                    strncpy(filepath,p,filepathlenth);
+                    filepath[filepathlenth]='\0';
+
+                    int hostnamelenth=p-(uri+7);
+                    strncpy(originalserverhostname,uri+7,hostnamelenth);
+                    originalserverhostname[hostnamelenth]='0';
                 }else{
-                    strcpy(filepath,"/home.html");//use default filepath when no filepath declared
-                    strncpy(originalserverhostname,uri+7,endp-(uri+7));
+                    strcpy(filepath,"/home.html\0");//use default filepath when no filepath declared
+                    
+                    int hostnamelenth=endp-(uri+7);
+                    strncpy(originalserverhostname,uri+7,hostnamelenth);
+                    originalserverhostname[hostnamelenth]='0';
                 }
 
             }
