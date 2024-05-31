@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <netdb.h>
 #include <errno.h>
+#include "csapp.h"
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
@@ -20,6 +21,9 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 //prototype
 ssize_t rio_readn(int, void *, size_t ) ;
+ssize_t rio_writen(int , void *, size_t); 
+void rio_readinitb(rio_t *, int); 
+ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n);
 void proxyserverinit(char *,uint16_t);
 void proxyclientinit(struct sockaddr_in *, char* ,char * ,char*);
 int parseproxyrequest(char *,char*,char*,char*);
@@ -104,13 +108,15 @@ void proxyserverinit(char *buffer,uint16_t port){
                      freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
                    
 
-                     char httpreply[MAX_OBJECT_SIZE];
+                    char httpreply[MAX_OBJECT_SIZE];
+
+                   
 
                     proxyclientinit(originserversockaddr,originalserverhostname,filepath,httpreply);
 
 
                     //write to connectfd reply to original client
-                    write(connectfd,httpreply,strlen(httpreply));
+                    rio_writen(connectfd,httpreply,MAX_OBJECT_SIZE);
                     printf("reply to original server\n");
              
              };
@@ -168,15 +174,24 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
         free(httprequest);
 
         //reply from originalserver
+        char *tembuf=malloc(MAX_OBJECT_SIZE);
+
+        rio_t *rp=malloc(MAX_OBJECT_SIZE);
+        rio_readinitb(rp, proxyfdc); 
+
 
         while(1){
               //checking socket to see the reply of original server
-              if(rio_readn(proxyfdc,httpreply,MAX_OBJECT_SIZE)>0){
+
+              if(rio_readnb(rp,httpreply,MAX_OBJECT_SIZE)>0){ 
+                //the rio_readn read all content from  socket in one run. Because its implementation is looping until EOF or reach required length
                 printf("this is server reply:%s\n",httpreply);
                 break;
               };
+              
         }
-    
+        free(tembuf);
+        free(rp);
     };   
     
 }
