@@ -37,6 +37,7 @@ void proxyserverinit(char *,uint16_t);
 void proxyclientinit(struct sockaddr_in *, char* ,char * ,char*);
 int parseproxyrequest(char *,char*,char*,char*);
 void *threadstart(void *arg);
+void sendhttptoserver(int proxyfdc,char* originserverdomainadd, char * filepath);
 
 int main(int argc,char * argv[])
 {
@@ -167,34 +168,14 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
     int proxyfdc=socket(AF_INET,SOCK_STREAM,0);
     if(proxyfdc==-1){printf("create proxy client fd failed\n");}
 
-
-    //struct the HTTP request
-    char *httprequest=malloc(MAX_OBJECT_SIZE);
-    memset(httprequest,0,sizeof httprequest);
-   
-    sprintf(httprequest,"GET %s HTTP/1.0\r\n",filepath);
-
-    char *httpheader=malloc(MAX_OBJECT_SIZE);
-    memset(httpheader,0,sizeof httpheader);
-    sprintf(httpheader,"Host:%s\r\n",originserverdomainadd);
-    strcat(httpheader,user_agent_hdr);
-    strcat(httpheader,"\r\n");
-
-    strcat(httprequest,httpheader);
-
-
     if(connect(proxyfdc,(struct sockaddr *)originserversockaddr,sizeof(struct sockaddr_in))==-1)
         {printf("connect to original server fail,erro:%s\n",strerror(errno)); 
          return;
         }
     else{
         printf("connected to original server successfully\n");
-        printf("http request is :%s\n",httprequest);
-        //send httprequest to the original server
 
-        write(proxyfdc,httprequest,strlen(httprequest));
-        free(httpheader);
-        free(httprequest);
+        sendhttptoserver(proxyfdc,originserverdomainadd,filepath);
 
         //reply from originalserver
         char *tembuf=malloc(MAX_OBJECT_SIZE);
@@ -218,6 +199,32 @@ void proxyclientinit(struct sockaddr_in * originserversockaddr, char* originserv
     };   
     
 }
+
+void sendhttptoserver(int proxyfdc,char* originserverdomainadd, char * filepath){
+        //struct the HTTP request
+    char *httprequest=malloc(MAX_OBJECT_SIZE);
+    memset(httprequest,0,sizeof httprequest);
+   
+    sprintf(httprequest,"GET %s HTTP/1.0\r\n",filepath);
+
+    char *httpheader=malloc(MAX_OBJECT_SIZE);
+    memset(httpheader,0,sizeof httpheader);
+    sprintf(httpheader,"Host:%s\r\n",originserverdomainadd);
+    strcat(httpheader,user_agent_hdr);
+    strcat(httpheader,"\r\n");
+
+    strcat(httprequest,httpheader);
+
+     printf("http request is :%s\n",httprequest);
+        //send httprequest to the original server
+
+        write(proxyfdc,httprequest,strlen(httprequest));
+        free(httpheader);
+        free(httprequest);
+
+
+}
+
 
 int parseproxyrequest(char *buffer, char* originalserverhostname,char* port,char *filepath){
         char method[MAX_OBJECT_SIZE],uri[MAX_OBJECT_SIZE],version[MAX_OBJECT_SIZE];
