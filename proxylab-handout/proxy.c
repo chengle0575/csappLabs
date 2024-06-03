@@ -18,6 +18,15 @@
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
 
+//data structure
+typedef struct 
+            {
+                int connectfd;
+                char *buffer;
+            } thread_arg;
+
+pthread_mutex_t lock;
+
 
 //prototype
 ssize_t rio_readn(int, void *, size_t ) ;
@@ -27,6 +36,7 @@ ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n);
 void proxyserverinit(char *,uint16_t);
 void proxyclientinit(struct sockaddr_in *, char* ,char * ,char*);
 int parseproxyrequest(char *,char*,char*,char*);
+void *threadstart(void *arg);
 
 int main(int argc,char * argv[])
 {
@@ -75,15 +85,43 @@ void proxyserverinit(char *buffer,uint16_t port){
     socklen_t addlen=sizeof(originclientaddr);
     memset(&originclientaddr,0,sizeof(originclientaddr));
     
-
-    
     while (1)
     {
         int connectfd=accept(proxyfds,&originclientaddr,&addlen); 
+        if(connectfd!=-1){
 
-        
-             //read buffer
+            //create a new thread
+            pthread_t threadid;
+            
+            thread_arg *arg=malloc(sizeof(thread_arg));
+            arg->connectfd=connectfd;
+            arg->buffer=buffer;
+            printf("this is buffer address in the main thread:%p\n",buffer);
+            pthread_create(&threadid,NULL,threadstart,arg);
+
+        }
+            
+    }
+
+}
+
+
+//thread start route
+void *threadstart(void *arg){
+     //read buffer
+              thread_arg *args = (thread_arg *)arg;
+             int connectfd=args->connectfd;
+             char *buffer=args->buffer;
+
+             printf("this is buffer address inside thread:%p\n",buffer);
+
+
+             pthread_mutex_lock(&lock);
              read(connectfd,buffer,MAX_CACHE_SIZE); //read from file to memory
+             pthread_mutex_unlock(&lock);
+
+
+
              printf("server recived:%s\n",buffer);
 
              //variable to store  parse
@@ -107,33 +145,18 @@ void proxyserverinit(char *buffer,uint16_t port){
     
                      freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
                    
-
-                    char httpreply[MAX_OBJECT_SIZE];
-
-                   
+                    char httpreply[MAX_OBJECT_SIZE];           
 
                     proxyclientinit(originserversockaddr,originalserverhostname,filepath,httpreply);
 
-
                     //write to connectfd reply to original client
                     rio_writen(connectfd,httpreply,MAX_OBJECT_SIZE);
-                    printf("reply to original server\n");
+                    printf("reply to original client\n");
              
              };
-
-
             free(originalserverhostname);
             free(filepath);
-        
-        
-       
-
-    }
-
 }
-
-
-//void 
 
 
 
