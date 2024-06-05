@@ -29,7 +29,7 @@ typedef struct
             {
                 char request[MAX_OBJECT_SIZE];
                 int proxyfdc;
-                char response[MAX_OBJECT_SIZE];
+                char response[MAX_CACHE_SIZE];
             }cacheblock;
 
 typedef struct 
@@ -38,7 +38,7 @@ typedef struct
             }cachemap;
 
 pthread_mutex_t lock;
-cachemap cachm[20];
+cachemap cachm[0];
 int cachet=1;
 
 
@@ -59,9 +59,6 @@ int main(int argc,char * argv[])
     
     printf("%s", user_agent_hdr);
      
-    //char buffer[MAX_OBJECT_SIZE];
-   
-
     uint16_t port=(uint16_t)atoi(argv[1]);
 
     proxyserverinit(port);
@@ -74,7 +71,6 @@ int main(int argc,char * argv[])
 
 
 void proxyserverinit(uint16_t port){
-    //work as server to the original client
 
     //create a internet socket
     int proxyfds=socket(AF_INET,SOCK_STREAM,0);
@@ -105,14 +101,14 @@ void proxyserverinit(uint16_t port){
         int connectfd=accept(proxyfds,&originclientaddr,&addlen); 
         if(connectfd!=-1){
 
-             char buffer[MAX_OBJECT_SIZE];
+            char buffer[MAX_OBJECT_SIZE];
             //create a new thread
             pthread_t threadid;
             
             thread_arg *arg=malloc(sizeof(thread_arg));
             arg->connectfd=connectfd;
             arg->buffer=buffer;
-            printf("this is buffer address in the main thread:%p\n",buffer);
+
             pthread_create(&threadid,NULL,threadstart,arg);
 
         }
@@ -127,18 +123,18 @@ void *threadstart(void *arg){
      //read buffer
             thread_arg *args = (thread_arg *)arg;
              int connectfd=args->connectfd;
-             char *buffer=args->buffer;
-
-             printf("this is buffer address inside thread:%p\n",buffer);
 
 
-             pthread_mutex_lock(&lock);
-             read(connectfd,buffer,MAX_CACHE_SIZE); //read from file to memory
-             pthread_mutex_unlock(&lock);
+
+             char *buffer=malloc(MAX_OBJECT_SIZE);
+
+             //pthread_mutex_lock(&lock);
+             //strcmp(buffer,args->buffer);
+             read(connectfd,buffer,MAX_OBJECT_SIZE); //read from file to memory
+             //pthread_mutex_unlock(&lock);
+             
              printf("server recived:%s\n",buffer);
 
-
-           
              //variable to store  parse
              char* originalserverhostname=malloc(MAX_OBJECT_SIZE);
              char *filepath=malloc(MAX_OBJECT_SIZE);
@@ -147,7 +143,10 @@ void *threadstart(void *arg){
              //paser the request, decide whether a valid HTTP request
              if(parseproxyrequest(buffer,originalserverhostname,port,filepath)==-1){
                 return NULL;};
-                
+           
+            //check avaible response in cache 
+            char* cachedresponse=checkreplirequest(buffer);
+
             //conver originalserver's hostname into socket address
             struct addrinfo *res;
             struct addrinfo hints;
@@ -160,39 +159,50 @@ void *threadstart(void *arg){
             struct sockaddr_in *originserversockaddr=(struct sockaddr_in *)res->ai_addr;
     
             freeaddrinfo(res); //the getaddrinfo allocate mwmory in heap for res, so need to fress manully
-            
 
-            char* cachedresponse=checkreplirequest(buffer);
-/*
-            if(cachedresponse!=""){
-                
+
+            if(cachedresponse!=NULL){       
                 //duplicate request and already has response saved in  memory, no need to connect again
-                rio_writen(connectfd,cachedresponse,sizeof(cachedresponse));
-                //sendhttptoserver(proxyfdc,originalserverhostname,filepath);
+                printf("is response:%s\n",cachedresponse);
+                
+                int err0=rio_writen(connectfd,cachedresponse,strlen(cachedresponse));
+                printf("error?: %s\n",strerror(err0));
+   
             }else{
-*/
+
                     char httpreply[MAX_OBJECT_SIZE];  
 
                     //create a intenet socket
                     int newproxyfdc=socket(AF_INET,SOCK_STREAM,0);
                     if(newproxyfdc==-1){printf("create proxy client fd failed\n");}
 
+
+                    pthread_mutex_lock(&lock);
                     //put into cachemap
-                    strcmp(cachm[cachet].cachblock.request,buffer);
+                  
+                    strcpy(cachm[cachet].cachblock.request,buffer);
                     cachm[cachet].cachblock.proxyfdc=newproxyfdc;
-                    strcpy(cachm[cachet].cachblock.response, "");    //init NULL, assigned until get httpreply  
+                    cachm[cachet].cachblock.response[0] = '\0';
+                    pthread_mutex_unlock(&lock);
                     cachet++;   
+                    
 
                     proxyclientconnect(newproxyfdc,originserversockaddr,originalserverhostname,filepath,httpreply);
 
                     //write to connectfd reply to original client
                     rio_writen(connectfd,httpreply,MAX_OBJECT_SIZE);
-                    strcpy(cachm[cachet].cachblock.response, httpreply);  
-                    printf("reply to original client\n");
-            //}
 
-            
-             
+                    pthread_mutex_lock(&lock);
+                    strcpy(cachm[cachet-1].cachblock.response, httpreply);  
+                    pthread_mutex_unlock(&lock);
+
+                   
+      
+            }
+
+           
+            close(connectfd);
+            printf("reply to original client\n");
             
             free(originalserverhostname);
             free(filepath);
@@ -200,12 +210,16 @@ void *threadstart(void *arg){
 
 
 char* checkreplirequest(char* buffer){
+    pthread_mutex_lock(&lock);
     for(int i=1;i<cachet;i++){
-        if(cachm[i].cachblock.request!=NULL &&strcmp(cachm[i].cachblock.request,buffer) &&cachm[i].cachblock.response!=""){
+        printf("checking replicate:%d, request:%s\n",i,cachm[i].cachblock.request);
+        if(cachm[i].cachblock.request!=NULL &&strcmp(cachm[i].cachblock.request,buffer)==0 && cachm[i].cachblock.response[0]!='\0'){
+            pthread_mutex_unlock(&lock);
             return cachm[i].cachblock.response;
         }
     }
-    return "";
+    pthread_mutex_unlock(&lock);
+    return NULL;
 }
 
 
@@ -229,7 +243,7 @@ void proxyclientconnect(int proxyfdc,struct sockaddr_in * originserversockaddr, 
               //checking socket to see the reply of original server
               if(rio_readnb(rp,httpreply,MAX_OBJECT_SIZE)>0){ 
                 //the rio_readn read all content from  socket in one run. Because its implementation is looping until EOF or reach required length
-                printf("this is server reply:%s\n",httpreply);
+                //printf("this is server reply:%s\n",httpreply);
                 break;
               };           
         }
@@ -254,7 +268,7 @@ void sendhttptoserver(int proxyfdc,char* originserverdomainadd, char * filepath)
 
     strcat(httprequest,httpheader);
 
-     printf("http request is :%s\n",httprequest);
+     //printf("http request is :%s\n",httprequest);
         //send httprequest to the original server
 
         write(proxyfdc,httprequest,strlen(httprequest));
