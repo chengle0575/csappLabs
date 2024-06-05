@@ -38,7 +38,7 @@ typedef struct
             }cachemap;
 
 pthread_mutex_t lock;
-cachemap cachm[0];
+cachemap cachm[10];
 int cachet=1;
 
 
@@ -127,7 +127,7 @@ void *threadstart(void *arg){
 
 
              char *buffer=malloc(MAX_OBJECT_SIZE);
-
+             memset(buffer,0,MAX_OBJECT_SIZE);
              //pthread_mutex_lock(&lock);
              //strcmp(buffer,args->buffer);
              read(connectfd,buffer,MAX_OBJECT_SIZE); //read from file to memory
@@ -176,16 +176,16 @@ void *threadstart(void *arg){
                     int newproxyfdc=socket(AF_INET,SOCK_STREAM,0);
                     if(newproxyfdc==-1){printf("create proxy client fd failed\n");}
 
-
+/*
                     pthread_mutex_lock(&lock);
                     //put into cachemap
-                  
+
                     strcpy(cachm[cachet].cachblock.request,buffer);
                     cachm[cachet].cachblock.proxyfdc=newproxyfdc;
                     cachm[cachet].cachblock.response[0] = '\0';
                     pthread_mutex_unlock(&lock);
                     cachet++;   
-                    
+ */                   
 
                     proxyclientconnect(newproxyfdc,originserversockaddr,originalserverhostname,filepath,httpreply);
 
@@ -193,7 +193,13 @@ void *threadstart(void *arg){
                     rio_writen(connectfd,httpreply,MAX_OBJECT_SIZE);
 
                     pthread_mutex_lock(&lock);
-                    strcpy(cachm[cachet-1].cachblock.response, httpreply);  
+                    if(strlen(httpreply)<MAX_OBJECT_SIZE){
+                        strcpy(cachm[cachet].cachblock.request,buffer);
+                        cachm[cachet].cachblock.proxyfdc=newproxyfdc;
+                        cachet++; 
+                        strcpy(cachm[cachet-1].cachblock.response, httpreply);  
+                    }
+                    
                     pthread_mutex_unlock(&lock);
 
                    
@@ -210,15 +216,17 @@ void *threadstart(void *arg){
 
 
 char* checkreplirequest(char* buffer){
-    pthread_mutex_lock(&lock);
+    
     for(int i=1;i<cachet;i++){
-        printf("checking replicate:%d, request:%s\n",i,cachm[i].cachblock.request);
-        if(cachm[i].cachblock.request!=NULL &&strcmp(cachm[i].cachblock.request,buffer)==0 && cachm[i].cachblock.response[0]!='\0'){
-            pthread_mutex_unlock(&lock);
+        printf("checking replicate:%d, cache request:%s\n buffer is:%s\n",i,cachm[i].cachblock.request,buffer);
+        printf("Length of cache request: %zu\n", strlen(cachm[i].cachblock.request));
+        printf("Length of buffer: %zu\n", strlen(buffer));
+        if(cachm[i].cachblock.request!=NULL &&strcmp(cachm[i].cachblock.request,buffer)==0 /*&& cachm[i].cachblock.response[0]!='\0'*/){
+            printf("cache hit!!!!!!!!!!!!!!\n");
             return cachm[i].cachblock.response;
         }
     }
-    pthread_mutex_unlock(&lock);
+    
     return NULL;
 }
 
