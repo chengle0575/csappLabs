@@ -9,16 +9,19 @@
 #include <netdb.h>
 #include <errno.h>
 #include "csapp.h"
+#include "sbuf.h"
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
+#define SBUF_SLOT_SIZE 10
+#define WORKING_THREAD_NUM 4
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
 
-//data structure
+/*data structure*/
 typedef struct 
             {
                 char request[MAX_OBJECT_SIZE];
@@ -34,17 +37,20 @@ typedef struct
 pthread_mutex_t lock;
 cachemap cachm[10];
 int cachet=1;
-
+sbuf_t *sbuf; 
 
 //prototype
+void sbuf_init(sbuf_t *sp, int n);
+void sbuf_insert(sbuf_t *sp, int item);
+int sbuf_remove(sbuf_t *sp);
 ssize_t rio_readn(int, void *, size_t ) ;
 ssize_t rio_writen(int , void *, size_t); 
 void rio_readinitb(rio_t *, int); 
 ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n);
-void proxyserverinit(uint16_t);
+int proxyopenlisten(uint16_t);
 void proxyclientconnect(int proxyfdc,struct sockaddr_in *, char* ,char * ,char*);
 int parseproxyrequest(char *,char*,char*,char*);
-void *threadstart(void *arg);
+void *threadstart();
 void sendhttptoserver(int proxyfdc,char* originserverdomainadd, char * filepath);
 char* checkreplirequest(char* buffer);
 
@@ -55,37 +61,23 @@ int main(int argc,char * argv[])
      
     uint16_t port=(uint16_t)atoi(argv[1]);
 
-    proxyserverinit(port);
+    /*a producer-consumer cache for thread pool*/
+    
+    sbuf=malloc(sizeof(sbuf_t));
+    sbuf_init(sbuf, SBUF_SLOT_SIZE);
+    sbuf_deinit(sbuf);
+    
+
+    /*create a thread pool*/
+    pthread_t threadid;
+    for(int i=1;i<=WORKING_THREAD_NUM;i++){
+        pthread_create(&threadid,NULL,threadstart,NULL);
+    }
+
+
+    /*proxy server establish connection to original client*/
+    int listenfd=proxyopenlisten(port);
   
-
-    return 0;
-}
-
-
-
-
-void proxyserverinit(uint16_t port){
-
-    //create a internet socket
-    int proxyfds=socket(AF_INET,SOCK_STREAM,0);
-    if(proxyfds==-1){printf("create proxy server fd failed\n");}
-    
-    
-    //struct the sockaddress, the ip address and port should be stored in network byte order(big endian)
-    struct sockaddr_in myaddr; //sin_port and sin_addr memebers shall be in network byte order
-    memset(&myaddr,0,sizeof(myaddr)); //clear the memory for this socket address and fill them all 0
-    myaddr.sin_family=AF_INET;
-    inet_pton(AF_INET,"0.0.0.0",&(myaddr.sin_addr)); //converts numbers-and-dots notation into network byte order, and copies to myaddr
-    myaddr.sin_port=htons(port); //convert port number to network byte order and assign to myaddr
-
-    
-    //bind the addr to my proxy machine
-    bind(proxyfds,(struct sockaddr *)&myaddr,sizeof(myaddr)); //use generic sockaddr struct cast to fullfill bind parameter needs
-
-
-    listen(proxyfds,1); 
-
-    
     struct sockaddr originclientaddr; //this is the structure to store peer address
     socklen_t addlen=sizeof(originclientaddr);
     memset(&originclientaddr,0,sizeof(originclientaddr));
@@ -96,35 +88,60 @@ void proxyserverinit(uint16_t port){
         //So it need to be allocated in heap each time recieving a new value.
         int *connectfd; 
         connectfd=malloc(sizeof(int)); 
-        *connectfd=accept(proxyfds,&originclientaddr,&addlen); 
+        *connectfd=accept(listenfd,&originclientaddr,&addlen); 
         if(*connectfd!=-1){
-
-            char buffer[MAX_OBJECT_SIZE];
-            //create a new thread
-            pthread_t threadid;
-        
-            pthread_create(&threadid,NULL,threadstart,connectfd);
-
+           //producer thread: put the connectfd into sbuf
+           sbuf_insert(sbuf, *connectfd);
         }
             
     }
 
+
+    return 0;
 }
 
 
-//thread start route
-void *threadstart(void *arg){
-            //detach the thread to avoid memory leak
-            pthread_detach(pthread_self());
+
+
+int proxyopenlisten(uint16_t port){
+
+    //create a internet socket
+    int proxyfds=socket(AF_INET,SOCK_STREAM,0);
+    if(proxyfds==-1){printf("create proxy server fd failed\n");}
+    
+    //struct the sockaddress, the ip address and port should be stored in network byte order(big endian)
+    struct sockaddr_in myaddr; //sin_port and sin_addr memebers shall be in network byte order
+    memset(&myaddr,0,sizeof(myaddr)); //clear the memory for this socket address and fill them all 0
+    myaddr.sin_family=AF_INET;
+    inet_pton(AF_INET,"0.0.0.0",&(myaddr.sin_addr)); //converts numbers-and-dots notation into network byte order, and copies to myaddr
+    myaddr.sin_port=htons(port); //convert port number to network byte order and assign to myaddr
+    
+    //bind the addr to my proxy machine
+    bind(proxyfds,(struct sockaddr *)&myaddr,sizeof(myaddr)); //use generic sockaddr struct cast to fullfill bind parameter needs
+
+    listen(proxyfds,1); 
+
+    return proxyfds;
+}
+
+
+
+
+
+/*thread routine*/
+void *threadstart(){
+    //detach the thread to avoid memory leak
+    pthread_detach(pthread_self());
      
-             int connectfd=*(int *)arg;
+    while(1){ //thread always keep working
+            
+            //consumer thread: remove the connectfd from sbuf
+             int connectfd=sbuf_remove(sbuf);
 
              char *buffer=malloc(MAX_OBJECT_SIZE);
              memset(buffer,0,MAX_OBJECT_SIZE);
-             //pthread_mutex_lock(&lock);
-             //strcmp(buffer,args->buffer);
+           
              read(connectfd,buffer,MAX_OBJECT_SIZE); //read from file to memory
-             //pthread_mutex_unlock(&lock);
              
              printf("server recived:%s\n",buffer);
 
@@ -169,16 +186,7 @@ void *threadstart(void *arg){
                     int newproxyfdc=socket(AF_INET,SOCK_STREAM,0);
                     if(newproxyfdc==-1){printf("create proxy client fd failed\n");}
 
-/*
-                    pthread_mutex_lock(&lock);
-                    //put into cachemap
-
-                    strcpy(cachm[cachet].cachblock.request,buffer);
-                    cachm[cachet].cachblock.proxyfdc=newproxyfdc;
-                    cachm[cachet].cachblock.response[0] = '\0';
-                    pthread_mutex_unlock(&lock);
-                    cachet++;   
- */                   
+ 
 
                     proxyclientconnect(newproxyfdc,originserversockaddr,originalserverhostname,filepath,httpreply);
 
@@ -193,9 +201,7 @@ void *threadstart(void *arg){
                         strcpy(cachm[cachet-1].cachblock.response, httpreply);  
                     }
                     
-                    pthread_mutex_unlock(&lock);
-
-                   
+                    pthread_mutex_unlock(&lock);      
       
             }
 
@@ -205,6 +211,8 @@ void *threadstart(void *arg){
             
             free(originalserverhostname);
             free(filepath);
+    }
+            
 }
 
 
@@ -269,12 +277,12 @@ void sendhttptoserver(int proxyfdc,char* originserverdomainadd, char * filepath)
 
     strcat(httprequest,httpheader);
 
-     //printf("http request is :%s\n",httprequest);
+    
         //send httprequest to the original server
 
-        write(proxyfdc,httprequest,strlen(httprequest));
-        free(httpheader);
-        free(httprequest);
+    write(proxyfdc,httprequest,strlen(httprequest));
+    free(httpheader);
+    free(httprequest);
 
 
 }
