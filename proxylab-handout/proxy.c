@@ -21,12 +21,6 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 //data structure
 typedef struct 
             {
-                int connectfd;
-                char *buffer;
-            } thread_arg;
-
-typedef struct 
-            {
                 char request[MAX_OBJECT_SIZE];
                 int proxyfdc;
                 char response[MAX_CACHE_SIZE];
@@ -98,18 +92,18 @@ void proxyserverinit(uint16_t port){
     
     while (1)
     {
-        int connectfd=accept(proxyfds,&originclientaddr,&addlen); 
-        if(connectfd!=-1){
+        //connectfd is passed as a pointer to thread, facing race condition. 
+        //So it need to be allocated in heap each time recieving a new value.
+        int *connectfd; 
+        connectfd=malloc(sizeof(int)); 
+        *connectfd=accept(proxyfds,&originclientaddr,&addlen); 
+        if(*connectfd!=-1){
 
             char buffer[MAX_OBJECT_SIZE];
             //create a new thread
             pthread_t threadid;
-            
-            thread_arg *arg=malloc(sizeof(thread_arg));
-            arg->connectfd=connectfd;
-            arg->buffer=buffer;
-
-            pthread_create(&threadid,NULL,threadstart,arg);
+        
+            pthread_create(&threadid,NULL,threadstart,connectfd);
 
         }
             
@@ -120,11 +114,10 @@ void proxyserverinit(uint16_t port){
 
 //thread start route
 void *threadstart(void *arg){
-     //read buffer
-            thread_arg *args = (thread_arg *)arg;
-             int connectfd=args->connectfd;
-
-
+            //detach the thread to avoid memory leak
+            pthread_detach(pthread_self());
+     
+             int connectfd=*(int *)arg;
 
              char *buffer=malloc(MAX_OBJECT_SIZE);
              memset(buffer,0,MAX_OBJECT_SIZE);
